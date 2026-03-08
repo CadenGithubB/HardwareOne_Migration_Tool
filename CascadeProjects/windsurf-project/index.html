@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HardwareOne Migration Tool</title>
+
+    <script>
+        (function() {
+            try {
+                const saved = localStorage.getItem('hw_migration_tool_theme');
+                const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const theme = saved === 'light' || saved === 'dark' ? saved : (systemDark ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch (_) {}
+        })();
+    </script>
+
+    <style>
+        :root {
+            --bg: linear-gradient(135deg, #667eea 0%, #764ba2 60%);
+            --fg: #fff;
+            --muted: rgba(255,255,255,.75);
+            --card-bg: rgba(255,255,255,.10);
+            --card-border: rgba(255,255,255,.20);
+            --panel-bg: rgba(255,255,255,.10);
+            --panel-fg: #fff;
+            --panel-elevated: rgba(255,255,255,.14);
+            --border: rgba(255,255,255,.22);
+            --accent: #bcd0ff;
+            --accent-strong: #dbe7ff;
+            --accent-contrast: #1b1e2f;
+            --secondary-bg: rgba(255,255,255,.80);
+            --secondary-fg: #333;
+            --secondary-hover: rgba(255,255,255,.92);
+            --field-bg: rgba(255,255,255,.10);
+            --field-border: rgba(255,255,255,.22);
+            --field-fg: #fff;
+            --surface-soft: rgba(255,255,255,.08);
+            --surface-strong: rgba(255,255,255,.12);
+            --status-ready-bg: rgba(40,167,69,.16);
+            --status-ready-fg: #d4edda;
+            --status-working-bg: rgba(255,193,7,.16);
+            --status-working-fg: #fff3cd;
+            --status-error-bg: rgba(220,53,69,.18);
+            --status-error-fg: #f8d7da;
+            --status-success-bg: rgba(40,167,69,.16);
+            --status-success-fg: #d4edda;
+            --danger: #dc3545;
+            --danger-soft: rgba(220,53,69,.16);
+        }
+
+        html[data-theme="dark"] {
+            --bg: linear-gradient(135deg, #07070b 0%, #151520 100%);
+            --fg: #f2f2f7;
+            --muted: rgba(242,242,247,.72);
+            --card-bg: rgba(255,255,255,.04);
+            --card-border: rgba(255,255,255,.12);
+            --panel-bg: rgba(18,18,26,.92);
+            --panel-fg: #f2f2f7;
+            --panel-elevated: rgba(30,30,40,.92);
+            --border: rgba(255,255,255,.14);
+            --accent: #8ab4ff;
+            --accent-strong: #b9d0ff;
+            --accent-contrast: #0b1020;
+            --secondary-bg: rgba(30,30,40,.92);
+            --secondary-fg: #f2f2f7;
+            --secondary-hover: rgba(52,52,66,.96);
+            --field-bg: rgba(255,255,255,.06);
+            --field-border: rgba(255,255,255,.14);
+            --field-fg: #f2f2f7;
+            --surface-soft: rgba(255,255,255,.05);
+            --surface-strong: rgba(255,255,255,.09);
+            --status-ready-bg: rgba(34,197,94,.16);
+            --status-ready-fg: #86efac;
+            --status-working-bg: rgba(245,158,11,.16);
+            --status-working-fg: #fcd34d;
+            --status-error-bg: rgba(239,68,68,.16);
+            --status-error-fg: #fca5a5;
+            --status-success-bg: rgba(34,197,94,.16);
+            --status-success-fg: #86efac;
+            --danger: #ff5a6a;
+            --danger-soft: rgba(255,90,106,.14);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Layout */
+        .app-header {
+            text-align: center;
+            padding: 28px 20px 18px;
+        }
+        .app-header h1 {
+            font-size: 1.5em;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .app-header p {
+            color: var(--muted);
+            font-size: 0.9em;
+            margin-top: 4px;
+        }
+
+        .app-container {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 0 16px 40px;
+        }
+
+        /* Theme toggle */
+        .theme-toggle {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 100;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 6px 10px;
+            color: var(--fg);
+            cursor: pointer;
+            font-size: 1.1em;
+            backdrop-filter: blur(8px);
+            transition: background 0.2s;
+        }
+        .theme-toggle:hover { background: var(--panel-elevated); }
+
+        /* Mode tabs */
+        .mode-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .mode-tab {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface-soft);
+            color: var(--muted);
+            cursor: pointer;
+            text-align: center;
+            font-size: 0.95em;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .mode-tab:hover { background: var(--surface-strong); color: var(--fg); }
+        .mode-tab.active {
+            background: var(--panel-elevated);
+            color: var(--fg);
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            backdrop-filter: blur(8px);
+        }
+        .card h3 {
+            font-size: 1em;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Form elements */
+        .field-group {
+            margin-bottom: 14px;
+        }
+        .field-group label {
+            display: block;
+            font-size: 0.82em;
+            color: var(--muted);
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .field-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--field-bg);
+            border: 1px solid var(--field-border);
+            border-radius: 8px;
+            color: var(--field-fg);
+            font-size: 0.95em;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--accent); }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: var(--accent-contrast);
+        }
+        .btn-primary:hover { background: var(--accent-strong); }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: var(--secondary-bg);
+            color: var(--secondary-fg);
+        }
+        .btn-secondary:hover { background: var(--secondary-hover); }
+        .btn-danger {
+            background: var(--danger-soft);
+            color: var(--danger);
+        }
+        .btn-danger:hover { opacity: 0.85; }
+        .btn-full { width: 100%; }
+
+        /* Status bar */
+        .status-bar {
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.88em;
+            margin-bottom: 14px;
+            display: none;
+        }
+        .status-bar.visible { display: block; }
+        .status-bar.ready { background: var(--status-ready-bg); color: var(--status-ready-fg); }
+        .status-bar.working { background: var(--status-working-bg); color: var(--status-working-fg); }
+        .status-bar.error { background: var(--status-error-bg); color: var(--status-error-fg); }
+        .status-bar.success { background: var(--status-success-bg); color: var(--status-success-fg); }
+
+        /* Progress */
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--surface-soft);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 8px;
+            display: none;
+        }
+        .progress-bar.visible { display: block; }
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        /* Backup preview */
+        .backup-preview {
+            display: none;
+        }
+        .backup-preview.visible { display: block; }
+
+        .preview-section {
+            background: var(--surface-soft);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+        .preview-section h4 {
+            font-size: 0.88em;
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .preview-section .detail {
+            font-size: 0.82em;
+            color: var(--muted);
+            margin-bottom: 2px;
+        }
+        .preview-section .detail span {
+            color: var(--fg);
+            font-weight: 500;
+        }
+
+        /* Checkbox toggles */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--surface-soft);
+        }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-row label {
+            font-size: 0.9em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .toggle-row .badge {
+            font-size: 0.75em;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: var(--surface-strong);
+            color: var(--muted);
+        }
+        .toggle-row .badge-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        /* Drop zone */
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 14px;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--accent);
+            background: var(--surface-soft);
+        }
+        .drop-zone p { color: var(--muted); font-size: 0.9em; }
+        .drop-zone .filename {
+            color: var(--accent);
+            font-weight: 600;
+            font-size: 1em;
+            margin-top: 4px;
+        }
+
+        /* Log area */
+        .log-area {
+            background: var(--surface-soft);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.8em;
+            line-height: 1.6;
+            display: none;
+        }
+        .log-area.visible { display: block; }
+        .log-entry { color: var(--muted); }
+        .log-entry.ok { color: var(--status-success-fg); }
+        .log-entry.warn { color: var(--status-working-fg); }
+        .log-entry.err { color: var(--status-error-fg); }
+        .log-entry.info { color: var(--accent); }
+
+        /* Warning banner */
+        .warning-banner {
+            background: var(--status-working-bg);
+            color: var(--status-working-fg);
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-size: 0.85em;
+            margin-bottom: 14px;
+            display: none;
+        }
+        .warning-banner.visible { display: block; }
+        .warning-banner strong { display: block; margin-bottom: 2px; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .app-header { padding: 20px 12px 14px; }
+            .app-header h1 { font-size: 1.25em; }
+            .card { padding: 16px; }
+            .mode-tabs { gap: 6px; }
+            .mode-tab { padding: 10px 8px; font-size: 0.85em; }
+        }
+
+        /* Hidden utility */
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+    <span id="themeIcon">🌙</span>
+</button>
+
+<div class="app-header">
+    <h1>HardwareOne Migration Tool</h1>
+    <p>Backup &amp; restore device configuration across firmware updates</p>
+</div>
+
+<div class="app-container">
+
+    <!-- Mode Tabs -->
+    <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="export" onclick="switchMode('export')">
+            Export Backup
+        </button>
+        <button class="mode-tab" data-mode="import" onclick="switchMode('import')">
+            Import Backup
+        </button>
+        <button class="mode-tab" data-mode="inspect" onclick="switchMode('inspect')">
+            Inspect File
+        </button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- EXPORT MODE -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="exportMode">
+
+        <!-- Connection -->
+        <div class="card">
+            <h3>Device Connection</h3>
+            <div class="field-group">
+                <label>Device IP Address</label>
+                <div class="field-row">
+                    <input type="text" id="exportDeviceIp" placeholder="e.g. 192.168.1.100" value="">
+                    <button class="btn btn-secondary" onclick="pingDevice('export')" id="exportPingBtn">Ping</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label>Username</label>
+                <input type="text" id="exportUsername" placeholder="admin">
+            </div>
+            <div class="field-group">
+                <label>Password</label>
+                <input type="password" id="exportPassword" placeholder="password">
+            </div>
+            <div id="exportConnStatus" class="status-bar"></div>
+        </div>
+
+        <!-- Export Options -->
+        <div class="card" id="exportOptionsCard">
+            <h3>Backup Contents</h3>
+            <p style="font-size:0.82em;color:var(--muted);margin-bottom:12px;">
+                Select which data to include in the backup file.
+            </p>
+            <div class="toggle-row">
+                <label>
+                    <input type="checkbox" id="expSettings" checked>
+                    System Settings
+                </label>
+                <span class="badge">/system/settings.json</span>
+            </div>
+            <div class="toggle-row">
+                <label>
+                    <input type="checkbox" id="expUsers" checked>
+                    User Accounts
+                </label>
+                <span class="badge">/system/users/users.json</span>
+            </div>
+            <div class="toggle-row">
+                <label>
+                    <input type="checkbox" id="expAutomations" checked>
+                    Automations
+                </label>
+                <span class="badge">/system/automations.json</span>
+            </div>
+            <div class="toggle-row">
+                <label>
+                    <input type="checkbox" id="expEspnow" checked>
+                    ESP-NOW Config
+                </label>
+                <div class="badge-stack">
+                    <span class="badge">/system/espnow/devices.json</span>
+                    <span class="badge">/system/espnow/mesh_peers.json</span>
+                </div>
+            </div>
+            <div class="toggle-row">
+                <label>
+                    <input type="checkbox" id="expMaps" checked>
+                    Maps & Waypoints
+                </label>
+                <div class="badge-stack">
+                    <span class="badge">/maps/**/*.hwmap</span>
+                    <span class="badge">/maps/**/waypoints_*.json</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Action -->
+        <div class="card">
+            <button class="btn btn-primary btn-full" id="exportBtn" onclick="startExport()">
+                Create Backup
+            </button>
+            <div id="exportProgress" class="progress-bar">
+                <div class="progress-fill" id="exportProgressFill"></div>
+            </div>
+            <div id="exportLog" class="log-area"></div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- IMPORT MODE -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="importMode" class="hidden">
+
+        <!-- Connection -->
+        <div class="card">
+            <h3>Device Connection</h3>
+            <p style="font-size:0.82em;color:var(--muted);margin-bottom:12px;">
+                Connect to a device in <strong>first-time setup mode</strong>. No credentials required — the device must be waiting for import.
+            </p>
+            <div class="field-group">
+                <label>Device IP Address</label>
+                <div class="field-row">
+                    <input type="text" id="importDeviceIp" placeholder="e.g. 192.168.1.100">
+                    <button class="btn btn-secondary" onclick="pingDevice('import')" id="importPingBtn">Ping</button>
+                </div>
+            </div>
+            <div id="importConnStatus" class="status-bar"></div>
+        </div>
+
+        <!-- Backup File Selection -->
+        <div class="card">
+            <h3>Backup File</h3>
+            <div class="drop-zone" id="importDropZone" onclick="document.getElementById('importFileInput').click()">
+                <p>Drop a <strong>.hwbackup</strong> file here, or click to browse</p>
+                <div class="filename" id="importFileName"></div>
+            </div>
+            <input type="file" id="importFileInput" accept=".hwbackup,.json" style="display:none" onchange="handleImportFile(this)">
+        </div>
+
+        <!-- Import Preview (shown after file loaded) -->
+        <div class="backup-preview" id="importPreview">
+            <div class="card">
+                <h3>Backup Contents</h3>
+                <div id="importPreviewContent"></div>
+
+                <div id="importVersionWarning" class="warning-banner">
+                    <strong>Version Mismatch</strong>
+                    <span id="importVersionWarningText"></span>
+                </div>
+
+                <!-- Selective import toggles -->
+                <div style="margin-top: 14px;">
+                    <h4 style="font-size:0.88em;font-weight:600;margin-bottom:8px;">Select what to restore:</h4>
+                    <div id="importToggles"></div>
+                </div>
+            </div>
+
+            <!-- Import Action -->
+            <div class="card">
+                <button class="btn btn-primary btn-full" id="importBtn" onclick="startImport()">
+                    Restore to Device
+                </button>
+                <div id="importProgress" class="progress-bar">
+                    <div class="progress-fill" id="importProgressFill"></div>
+                </div>
+                <div id="importLog" class="log-area"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- INSPECT MODE -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="inspectMode" class="hidden">
+        <div class="card">
+            <h3>Inspect Backup File</h3>
+            <p style="font-size:0.82em;color:var(--muted);margin-bottom:12px;">
+                Open a backup file to view its contents without connecting to a device.
+            </p>
+            <div class="drop-zone" id="inspectDropZone" onclick="document.getElementById('inspectFileInput').click()">
+                <p>Drop a <strong>.hwbackup</strong> file here, or click to browse</p>
+                <div class="filename" id="inspectFileName"></div>
+            </div>
+            <input type="file" id="inspectFileInput" accept=".hwbackup,.json" style="display:none" onchange="handleInspectFile(this)">
+        </div>
+
+        <div class="backup-preview" id="inspectPreview">
+            <div class="card">
+                <h3>Backup Summary</h3>
+                <div id="inspectPreviewContent"></div>
+            </div>
+            <div class="card" id="inspectDetailCard" style="display:none;">
+                <h3>Detailed View</h3>
+                <div id="inspectDetailContent" style="font-family:'SF Mono','Fira Code',monospace;font-size:0.8em;max-height:400px;overflow-y:auto;white-space:pre-wrap;color:var(--muted);background:var(--surface-soft);padding:12px;border-radius:8px;"></div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════
+
+const BACKUP_FORMAT_VERSION = 1;
+const BACKUP_MAGIC = 'HWBACKUP';
+
+// Backup categories (sent to /api/backup as a selection list)
+const BACKUP_CATEGORIES = {
+    settings:    { label: 'System Settings' },
+    users:       { label: 'User Accounts' },
+    automations: { label: 'Automations' },
+    espnow:      { label: 'ESP-NOW Config' },
+    maps:        { label: 'Maps & Waypoints' }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// THEME
+// ═══════════════════════════════════════════════════════════════════
+
+function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('hw_migration_tool_theme', next);
+    updateThemeIcon();
+}
+
+function updateThemeIcon() {
+    const theme = document.documentElement.getAttribute('data-theme');
+    document.getElementById('themeIcon').textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+updateThemeIcon();
+
+// ═══════════════════════════════════════════════════════════════════
+// MODE SWITCHING
+// ═══════════════════════════════════════════════════════════════════
+
+function switchMode(mode) {
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+    document.getElementById('exportMode').classList.toggle('hidden', mode !== 'export');
+    document.getElementById('importMode').classList.toggle('hidden', mode !== 'import');
+    document.getElementById('inspectMode').classList.toggle('hidden', mode !== 'inspect');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATUS & LOG HELPERS
+// ═══════════════════════════════════════════════════════════════════
+
+function setStatus(id, text, type) {
+    const el = document.getElementById(id);
+    el.className = 'status-bar visible ' + type;
+    el.textContent = text;
+}
+
+function clearStatus(id) {
+    const el = document.getElementById(id);
+    el.className = 'status-bar';
+    el.textContent = '';
+}
+
+function showProgress(id, visible) {
+    document.getElementById(id).classList.toggle('visible', visible);
+}
+
+function setProgress(id, pct) {
+    document.getElementById(id + 'Fill').style.width = pct + '%';
+}
+
+function logClear(id) {
+    const el = document.getElementById(id);
+    el.innerHTML = '';
+    el.classList.remove('visible');
+}
+
+function log(id, msg, cls = '') {
+    const el = document.getElementById(id);
+    el.classList.add('visible');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry ' + cls;
+    entry.textContent = msg;
+    el.appendChild(entry);
+    el.scrollTop = el.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DEVICE COMMUNICATION
+// ═══════════════════════════════════════════════════════════════════
+
+function deviceUrl(mode, path) {
+    const ip = document.getElementById(mode + 'DeviceIp').value.trim();
+    if (!ip) return null;
+    // Strip trailing slash, ensure http://
+    const base = ip.replace(/\/+$/, '');
+    const url = base.startsWith('http') ? base : 'http://' + base;
+    return url + path;
+}
+
+function authHeaders(mode) {
+    if (mode === 'import') return {};
+    const user = document.getElementById('exportUsername').value.trim();
+    const pass = document.getElementById('exportPassword').value;
+    if (!user) return {};
+    return { 'Authorization': 'Basic ' + btoa(user + ':' + pass) };
+}
+
+async function fetchDevice(mode, path, opts = {}) {
+    const url = deviceUrl(mode, path);
+    if (!url) throw new Error('No device IP specified');
+    const headers = { ...authHeaders(mode), ...(opts.headers || {}) };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), opts.timeout || 8000);
+    try {
+        const resp = await fetch(url, {
+            ...opts,
+            headers,
+            signal: controller.signal
+        });
+        clearTimeout(timeout);
+        return resp;
+    } catch (e) {
+        clearTimeout(timeout);
+        // Detect CORS failures: browser throws a TypeError with an opaque message
+        if (e instanceof TypeError && e.message !== 'No device IP specified') {
+            const err = new Error(
+                'CORS error: The device is not sending Access-Control-Allow-Origin headers. '
+                + 'Add CORS headers to the firmware web server. See README for details.'
+            );
+            err.isCORS = true;
+            throw err;
+        }
+        throw e;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PING
+// ═══════════════════════════════════════════════════════════════════
+
+async function pingDevice(mode) {
+    const statusId = mode + 'ConnStatus';
+    const btnId = mode + 'PingBtn';
+    const btn = document.getElementById(btnId);
+    btn.disabled = true;
+    btn.textContent = '...';
+    clearStatus(statusId);
+
+    try {
+        const resp = await fetchDevice(mode, '/api/ping', { timeout: 5000 });
+        if (resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            const name = data.deviceName || data.hostname || 'device';
+            const version = data.firmwareVersion || data.version || 'unknown';
+            setStatus(statusId, `Connected to "${name}" (firmware: ${version})`, 'success');
+        } else if (resp.status === 401) {
+            setStatus(statusId, 'Authentication failed — check username/password', 'error');
+        } else {
+            setStatus(statusId, `Device responded with HTTP ${resp.status}`, 'error');
+        }
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            setStatus(statusId, 'Connection timed out — check IP address', 'error');
+        } else if (e.isCORS) {
+            setStatus(statusId, 'CORS blocked — device firmware needs Access-Control-Allow-Origin headers (see README)', 'error');
+        } else {
+            setStatus(statusId, 'Cannot reach device — check IP and network', 'error');
+        }
+    }
+    btn.disabled = false;
+    btn.textContent = 'Ping';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT (BACKUP)
+// ═══════════════════════════════════════════════════════════════════
+
+async function startExport() {
+    const btn = document.getElementById('exportBtn');
+    btn.disabled = true;
+    logClear('exportLog');
+    showProgress('exportProgress', true);
+    setProgress('exportProgress', 0);
+
+    try {
+        // Step 1: Build category selection
+        const selected = getSelectedExportCategories();
+        if (selected.length === 0) {
+            log('exportLog', 'No categories selected.', 'warn');
+            btn.disabled = false;
+            showProgress('exportProgress', false);
+            return;
+        }
+
+        log('exportLog', 'Requesting backup from device...', 'info');
+        log('exportLog', `  Categories: ${selected.join(', ')}`, 'info');
+        setProgress('exportProgress', 10);
+
+        // Step 2: Call /api/backup with selected categories
+        const resp = await fetchDevice('export', '/api/backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ categories: selected }),
+            timeout: 30000
+        });
+
+        setProgress('exportProgress', 80);
+
+        if (!resp.ok) {
+            if (resp.status === 401) {
+                throw new Error('Authentication failed \u2014 check username/password');
+            }
+            throw new Error(`Device returned HTTP ${resp.status}`);
+        }
+
+        const backup = await resp.json();
+
+        // Validate response
+        if (!backup.magic || backup.magic !== BACKUP_MAGIC) {
+            throw new Error('Device returned invalid backup format');
+        }
+
+        // Log results
+        const device = backup.device || {};
+        log('exportLog', `Device: ${device.hostname || 'unknown'} (${device.firmwareVersion || 'unknown'})`, 'ok');
+
+        const filePaths = Object.keys(backup.files || {});
+        for (const path of filePaths) {
+            log('exportLog', `  OK ${path}`, 'ok');
+        }
+
+        // Log any warnings from the device
+        if (backup.warnings) {
+            for (const w of backup.warnings) {
+                log('exportLog', `  Warning: ${w}`, 'warn');
+            }
+        }
+
+        // Step 3: Download
+        setProgress('exportProgress', 95);
+        if (filePaths.length === 0) {
+            log('exportLog', 'No files were retrieved \u2014 backup is empty.', 'err');
+            setStatus('exportConnStatus', 'Backup failed \u2014 no data retrieved', 'error');
+        } else {
+            const json = JSON.stringify(backup, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const name = (device.hostname || 'hardwareone') + '_' + formatDateForFilename() + '.hwbackup';
+            downloadBlob(blob, name);
+            log('exportLog', `Backup complete: ${filePaths.length} file(s) saved to ${name}`, 'ok');
+            setStatus('exportConnStatus', `Backup saved: ${name}`, 'success');
+        }
+
+        setProgress('exportProgress', 100);
+    } catch (e) {
+        log('exportLog', `Error: ${e.message}`, 'err');
+        setStatus('exportConnStatus', 'Backup failed \u2014 ' + e.message, 'error');
+    }
+
+    btn.disabled = false;
+}
+
+function getSelectedExportCategories() {
+    const keys = [];
+    if (document.getElementById('expSettings').checked) keys.push('settings');
+    if (document.getElementById('expUsers').checked) keys.push('users');
+    if (document.getElementById('expAutomations').checked) keys.push('automations');
+    if (document.getElementById('expEspnow').checked) keys.push('espnow');
+    if (document.getElementById('expMaps').checked) keys.push('maps');
+    return keys;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IMPORT (RESTORE)
+// ═══════════════════════════════════════════════════════════════════
+
+let importBackupData = null;
+
+function handleImportFile(input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    document.getElementById('importFileName').textContent = file.name;
+    readBackupFile(file, 'import');
+}
+
+function handleInspectFile(input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    document.getElementById('inspectFileName').textContent = file.name;
+    readBackupFile(file, 'inspect');
+}
+
+function readBackupFile(file, target) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (data.magic !== BACKUP_MAGIC) {
+                throw new Error('Not a valid HardwareOne backup file (missing magic header)');
+            }
+            if (target === 'import') {
+                importBackupData = data;
+                renderImportPreview(data);
+            } else {
+                renderInspectPreview(data);
+            }
+        } catch (err) {
+            if (target === 'import') {
+                setStatus('importConnStatus', 'Invalid backup file: ' + err.message, 'error');
+            } else {
+                alert('Invalid backup file: ' + err.message);
+            }
+        }
+    };
+    reader.readAsText(file);
+}
+
+function renderImportPreview(data) {
+    const preview = document.getElementById('importPreview');
+    const content = document.getElementById('importPreviewContent');
+    const toggles = document.getElementById('importToggles');
+    const warning = document.getElementById('importVersionWarning');
+
+    // Build summary
+    let html = '';
+    html += renderBackupSummary(data);
+    content.innerHTML = html;
+
+    // Build toggles for each file in backup
+    let toggleHtml = '';
+    for (const [path, _] of Object.entries(data.files)) {
+        const fileLabel = pathToLabel(path);
+        const id = 'imp_' + path.replace(/[^a-zA-Z0-9]/g, '_');
+        toggleHtml += `
+            <div class="toggle-row">
+                <label><input type="checkbox" id="${id}" data-path="${path}" checked> ${fileLabel}</label>
+                <span class="badge">${path}</span>
+            </div>`;
+    }
+    toggles.innerHTML = toggleHtml;
+
+    // Version warning (shown always as informational)
+    warning.classList.add('visible');
+    const backupVer = data.device?.firmwareVersion || 'unknown';
+    document.getElementById('importVersionWarningText').textContent =
+        `This backup was created on firmware "${backupVer}". Settings that no longer exist in the new firmware will be ignored. New settings will use defaults.`;
+
+    preview.classList.add('visible');
+}
+
+function renderInspectPreview(data) {
+    const preview = document.getElementById('inspectPreview');
+    const content = document.getElementById('inspectPreviewContent');
+
+    content.innerHTML = renderBackupSummary(data);
+    preview.classList.add('visible');
+
+    // Show raw detail
+    const detailCard = document.getElementById('inspectDetailCard');
+    const detailContent = document.getElementById('inspectDetailContent');
+    detailCard.style.display = '';
+    detailContent.textContent = JSON.stringify(data, null, 2);
+}
+
+function renderBackupSummary(data) {
+    let html = '';
+
+    // Metadata section
+    html += `<div class="preview-section">
+        <h4>Backup Metadata</h4>
+        <div class="detail">Created: <span>${data.timestamp || 'unknown'}</span></div>
+        <div class="detail">Format Version: <span>${data.formatVersion || '?'}</span></div>
+    </div>`;
+
+    // Device info
+    if (data.device) {
+        html += `<div class="preview-section">
+            <h4>Source Device</h4>
+            <div class="detail">Hostname: <span>${data.device.hostname || 'unknown'}</span></div>
+            <div class="detail">Firmware: <span>${data.device.firmwareVersion || 'unknown'}</span></div>
+            <div class="detail">Board: <span>${data.device.board || 'unknown'}</span></div>
+            <div class="detail">MAC: <span>${data.device.mac || 'unknown'}</span></div>
+        </div>`;
+    }
+
+    // Files
+    const filePaths = Object.keys(data.files || {});
+    html += `<div class="preview-section">
+        <h4>Files (${filePaths.length})</h4>`;
+    for (const path of filePaths) {
+        const content = data.files[path];
+        const size = typeof content === 'string' ? content.length : JSON.stringify(content).length;
+        const sizeStr = size < 1024 ? size + ' B' : (size / 1024).toFixed(1) + ' KB';
+        const summary = getFileSummary(path, content);
+        html += `<div class="detail">${pathToLabel(path)}: <span>${sizeStr}</span>${summary ? ' — ' + summary : ''}</div>`;
+    }
+    html += `</div>`;
+
+    return html;
+}
+
+function pathToLabel(path) {
+    if (path.includes('settings.json') && path.includes('espnow')) return 'ESP-NOW Peer Settings';
+    if (path.includes('devices.json')) return 'ESP-NOW Devices';
+    if (path.includes('mesh_peers.json')) return 'Mesh Peers';
+    if (path.includes('users.json')) return 'User Accounts';
+    if (path.includes('settings.json')) return 'System Settings';
+    if (path.includes('automations.json')) return 'Automations';
+    if (path.endsWith('.hwmap')) return 'Map (' + path.split('/').pop() + ')';
+    if (path.includes('waypoint')) return 'Waypoints (' + path.split('/').pop() + ')';
+    return path.split('/').pop();
+}
+
+function getFileSummary(path, content) {
+    if (!content || typeof content !== 'object') return '';
+    if (path.includes('users.json')) {
+        const users = content.users || [];
+        return users.length + ' user(s)';
+    }
+    if (path.includes('automations.json')) {
+        const autos = content.automations || [];
+        return autos.length + ' automation(s)';
+    }
+    if (path.includes('settings.json') && !path.includes('espnow')) {
+        const keys = Object.keys(content);
+        return keys.length + ' setting(s)';
+    }
+    if (path.endsWith('.hwmap')) {
+        return 'binary map file';
+    }
+    if (path.includes('waypoint')) {
+        const wps = content.waypoints || [];
+        return wps.length + ' waypoint(s)';
+    }
+    return '';
+}
+
+async function startImport() {
+    if (!importBackupData) return;
+
+    const btn = document.getElementById('importBtn');
+    btn.disabled = true;
+    logClear('importLog');
+    showProgress('importProgress', true);
+    setProgress('importProgress', 0);
+
+    try {
+        // Gather selected files
+        const selectedPaths = [];
+        document.querySelectorAll('#importToggles input[type="checkbox"]:checked').forEach(cb => {
+            selectedPaths.push(cb.dataset.path);
+        });
+
+        if (selectedPaths.length === 0) {
+            log('importLog', 'No files selected for restore.', 'warn');
+            btn.disabled = false;
+            return;
+        }
+
+        // Step 1: Verify device is accepting restores
+        log('importLog', 'Checking device status...', 'info');
+        setProgress('importProgress', 5);
+
+        try {
+            const pingResp = await fetchDevice('import', '/api/ping', { timeout: 5000 });
+            if (pingResp.ok) {
+                const pingData = await pingResp.json();
+                if (pingData.acceptingRestore) {
+                    log('importLog', 'Device is in restore mode, ready to receive backup.', 'ok');
+                } else {
+                    log('importLog', 'Warning: Device may not be in restore mode. The /api/restore endpoint is only available during first-time setup when "Import from Backup" is selected.', 'warn');
+                }
+            }
+        } catch (_) {
+            log('importLog', 'Could not ping device — attempting restore anyway.', 'warn');
+        }
+
+        // Step 2: Build restore payload
+        const restorePayload = {
+            magic: BACKUP_MAGIC,
+            files: {}
+        };
+
+        for (const path of selectedPaths) {
+            if (importBackupData.files[path] !== undefined) {
+                restorePayload.files[path] = importBackupData.files[path];
+            }
+        }
+
+        // Step 3: Send to device via /api/restore
+        log('importLog', `Sending ${selectedPaths.length} file(s) to device...`, 'info');
+        setProgress('importProgress', 20);
+
+        const resp = await fetchDevice('import', '/api/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(restorePayload),
+            timeout: 30000
+        });
+
+        setProgress('importProgress', 90);
+
+        if (resp.ok) {
+            const result = await resp.json().catch(() => ({}));
+            log('importLog', 'Restore accepted by device.', 'ok');
+            if (result.filesWritten) {
+                log('importLog', `  ${result.filesWritten} file(s) written.`, 'ok');
+            }
+            if (result.warnings) {
+                for (const w of result.warnings) {
+                    log('importLog', `  Warning: ${w}`, 'warn');
+                }
+            }
+        } else if (resp.status === 404 || resp.status === 403) {
+            throw new Error('Restore endpoint not available. The device must be in first-time setup with "Import from Backup" selected.');
+        } else {
+            throw new Error(`Restore failed with HTTP ${resp.status}`);
+        }
+
+        setProgress('importProgress', 100);
+        log('importLog', 'Restore complete. Device will reboot with restored settings.', 'ok');
+        setStatus('importConnStatus', 'Restore complete — device will reboot', 'success');
+
+    } catch (e) {
+        log('importLog', 'Error: ' + e.message, 'err');
+        setStatus('importConnStatus', 'Restore failed — ' + e.message, 'error');
+    }
+
+    btn.disabled = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DROP ZONE HANDLERS
+// ═══════════════════════════════════════════════════════════════════
+
+function setupDropZone(zoneId, handler) {
+    const zone = document.getElementById(zoneId);
+    if (!zone) return;
+
+    zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zone.classList.add('dragover');
+    });
+    zone.addEventListener('dragleave', () => {
+        zone.classList.remove('dragover');
+    });
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            handler(e.dataTransfer.files[0]);
+        }
+    });
+}
+
+setupDropZone('importDropZone', (file) => {
+    document.getElementById('importFileName').textContent = file.name;
+    // Create a fake input event
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    document.getElementById('importFileInput').files = dt.files;
+    readBackupFile(file, 'import');
+});
+
+setupDropZone('inspectDropZone', (file) => {
+    document.getElementById('inspectFileName').textContent = file.name;
+    readBackupFile(file, 'inspect');
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════
+
+function formatDateForFilename() {
+    const d = new Date();
+    return d.getFullYear() +
+        String(d.getMonth() + 1).padStart(2, '0') +
+        String(d.getDate()).padStart(2, '0') + '_' +
+        String(d.getHours()).padStart(2, '0') +
+        String(d.getMinutes()).padStart(2, '0');
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
