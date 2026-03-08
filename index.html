@@ -481,7 +481,10 @@
                     <input type="checkbox" id="expUsers" checked>
                     User Accounts
                 </label>
-                <span class="badge">/system/users/users.json</span>
+                <div class="badge-stack">
+                    <span class="badge">/system/users/users.json</span>
+                    <span class="badge">/system/users/user_settings/*.json</span>
+                </div>
             </div>
             <div class="toggle-row">
                 <label>
@@ -725,8 +728,17 @@ function authHeaders(mode) {
     if (mode === 'import') return {};
     const user = document.getElementById('exportUsername').value.trim();
     const pass = document.getElementById('exportPassword').value;
-    if (!user) return {};
-    return { 'Authorization': 'Basic ' + btoa(user + ':' + pass) };
+    console.log('[AUTH DEBUG] Username:', user);
+    console.log('[AUTH DEBUG] Password length:', pass.length);
+    console.log('[AUTH DEBUG] Password (first 3 chars):', pass.substring(0, 3) + '...');
+    if (!user) {
+        console.warn('[AUTH DEBUG] No username provided, skipping auth header');
+        return {};
+    }
+    const encoded = btoa(user + ':' + pass);
+    console.log('[AUTH DEBUG] Base64 encoded:', encoded.substring(0, 20) + '...');
+    console.log('[AUTH DEBUG] Full header:', 'Basic ' + encoded);
+    return { 'Authorization': 'Basic ' + encoded };
 }
 
 async function fetchDevice(mode, path, opts = {}) {
@@ -826,6 +838,8 @@ async function startExport() {
         setProgress('exportProgress', 10);
 
         // Step 2: Call /api/backup with selected categories
+        console.log('[BACKUP DEBUG] Sending POST to /api/backup');
+        console.log('[BACKUP DEBUG] Body:', JSON.stringify({ categories: selected }));
         const resp = await fetchDevice('export', '/api/backup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -834,11 +848,18 @@ async function startExport() {
         });
 
         setProgress('exportProgress', 80);
+        console.log('[BACKUP DEBUG] Response status:', resp.status);
+        console.log('[BACKUP DEBUG] Response headers:', [...resp.headers.entries()]);
 
         if (!resp.ok) {
             if (resp.status === 401) {
+                console.error('[BACKUP DEBUG] 401 Unauthorized - credentials rejected by device');
+                const body = await resp.text().catch(() => '');
+                console.error('[BACKUP DEBUG] Response body:', body);
                 throw new Error('Authentication failed \u2014 check username/password');
             }
+            const body = await resp.text().catch(() => '');
+            console.error('[BACKUP DEBUG] Error response body:', body);
             throw new Error(`Device returned HTTP ${resp.status}`);
         }
 
@@ -1036,6 +1057,10 @@ function pathToLabel(path) {
     if (path.includes('devices.json')) return 'ESP-NOW Devices';
     if (path.includes('mesh_peers.json')) return 'Mesh Peers';
     if (path.includes('users.json')) return 'User Accounts';
+    if (path.includes('user_settings/') && path.endsWith('.json')) {
+        const userId = path.split('/').pop().replace('.json', '');
+        return 'User Settings (ID: ' + userId + ')';
+    }
     if (path.includes('settings.json')) return 'System Settings';
     if (path.includes('automations.json')) return 'Automations';
     if (path.endsWith('.hwmap')) return 'Map (' + path.split('/').pop() + ')';
@@ -1048,6 +1073,13 @@ function getFileSummary(path, content) {
     if (path.includes('users.json')) {
         const users = content.users || [];
         return users.length + ' user(s)';
+    }
+    if (path.includes('user_settings/') && path.endsWith('.json')) {
+        const parts = [];
+        if (content.password) parts.push('password');
+        if (content.theme) parts.push('theme: ' + content.theme);
+        if (content.gamepad_password) parts.push('gamepad password');
+        return parts.length > 0 ? parts.join(', ') : 'user preferences';
     }
     if (path.includes('automations.json')) {
         const autos = content.automations || [];

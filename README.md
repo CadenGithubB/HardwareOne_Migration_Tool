@@ -18,8 +18,6 @@ This tool runs 100% client-side.
 
 ## How to Run
 
-### Option 1: Local File (Recommended)
-
 Download `index.html` and open it directly in your browser:
 
 ```bash
@@ -35,13 +33,7 @@ python3 -m http.server 8000
 # Then visit http://localhost:8000
 ```
 
-**Why local?** The ESP32 device serves HTTP (not HTTPS). If you use the GitHub Pages version (`https://cadengithubb.github.io/...`), browsers will block HTTP requests due to mixed content security policies. Running locally avoids this issue.
-
-### Option 2: GitHub Pages
-
-Visit [https://cadengithubb.github.io/HardwareOne-Migration-Tool/](https://cadengithubb.github.io/HardwareOne-Migration-Tool/)
-
-**Note:** This only works if your ESP32 device has HTTPS enabled. Most local devices use HTTP, which will be blocked by the browser.
+**Important:** This tool must be run locally. The ESP32 device serves HTTP (not HTTPS), so browsers will block requests from HTTPS-hosted pages due to mixed content security policies.
 
 ## Usage
 
