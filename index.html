@@ -566,6 +566,11 @@
                     <span id="importVersionWarningText"></span>
                 </div>
 
+                <div id="importDeviceWarning" class="warning-banner" style="background:var(--status-error-bg);color:var(--status-error-fg);">
+                    <strong>Different Device Detected</strong>
+                    <span id="importDeviceWarningText">This backup was created on a different device. User passwords and encrypted WiFi credentials will not work on this device. You can still restore non-sensitive data (settings, automations, maps), but you will need to create new login credentials during first-time setup after reboot.</span>
+                </div>
+
                 <!-- Selective import toggles -->
                 <div style="margin-top: 14px;">
                     <h4 style="font-size:0.88em;font-weight:600;margin-bottom:8px;">Select what to restore:</h4>
@@ -771,6 +776,11 @@ async function pingDevice(mode) {
             const data = await resp.json().catch(() => ({}));
             const name = data.deviceName || data.hostname || 'device';
             const version = data.firmwareVersion || data.version || 'unknown';
+            // Capture fingerprint for import mode compatibility checking
+            if (mode === 'import' && data.fingerprint) {
+                importDeviceFingerprint = data.fingerprint;
+                checkImportCompatibility();
+            }
             setStatus(statusId, `Connected to "${name}" (firmware: ${version})`, 'success');
         } else if (resp.status === 401) {
             setStatus(statusId, 'Authentication failed — check username/password', 'error');
@@ -893,6 +903,7 @@ function getSelectedExportCategories() {
 // ═══════════════════════════════════════════════════════════════════
 
 let importBackupData = null;
+let importDeviceFingerprint = null;
 
 function handleImportFile(input) {
     if (!input.files.length) return;
@@ -964,6 +975,9 @@ function renderImportPreview(data) {
         `This backup was created on firmware "${backupVer}". Settings that no longer exist in the new firmware will be ignored. New settings will use defaults.`;
 
     preview.classList.add('visible');
+
+    // Check fingerprint compatibility if device was already pinged
+    checkImportCompatibility();
 }
 
 function renderInspectPreview(data) {
@@ -1083,10 +1097,13 @@ async function startImport() {
             const pingResp = await fetchDevice('import', '/api/ping', { timeout: 5000 });
             if (pingResp.ok) {
                 const pingData = await pingResp.json();
-                if (pingData.acceptingRestore) {
+                if (pingData.mode === 'restore') {
                     log('importLog', 'Device is in restore mode, ready to receive backup.', 'ok');
                 } else {
                     log('importLog', 'Warning: Device may not be in restore mode. The /api/restore endpoint is only available during first-time setup when "Import from Backup" is selected.', 'warn');
+                }
+                if (pingData.fingerprint) {
+                    importDeviceFingerprint = pingData.fingerprint;
                 }
             }
         } catch (_) {
@@ -1096,6 +1113,7 @@ async function startImport() {
         // Step 2: Build restore payload
         const restorePayload = {
             magic: BACKUP_MAGIC,
+            device: importBackupData.device || {},
             files: {}
         };
 
@@ -1109,35 +1127,7 @@ async function startImport() {
         log('importLog', `Sending ${selectedPaths.length} file(s) to device...`, 'info');
         setProgress('importProgress', 20);
 
-        const resp = await fetchDevice('import', '/api/restore', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(restorePayload),
-            timeout: 30000
-        });
-
-        setProgress('importProgress', 90);
-
-        if (resp.ok) {
-            const result = await resp.json().catch(() => ({}));
-            log('importLog', 'Restore accepted by device.', 'ok');
-            if (result.filesWritten) {
-                log('importLog', `  ${result.filesWritten} file(s) written.`, 'ok');
-            }
-            if (result.warnings) {
-                for (const w of result.warnings) {
-                    log('importLog', `  Warning: ${w}`, 'warn');
-                }
-            }
-        } else if (resp.status === 404 || resp.status === 403) {
-            throw new Error('Restore endpoint not available. The device must be in first-time setup with "Import from Backup" selected.');
-        } else {
-            throw new Error(`Restore failed with HTTP ${resp.status}`);
-        }
-
-        setProgress('importProgress', 100);
-        log('importLog', 'Restore complete. Device will reboot with restored settings.', 'ok');
-        setStatus('importConnStatus', 'Restore complete — device will reboot', 'success');
+        await sendRestore(restorePayload, false);
 
     } catch (e) {
         log('importLog', 'Error: ' + e.message, 'err');
@@ -1145,6 +1135,99 @@ async function startImport() {
     }
 
     btn.disabled = false;
+}
+
+// Check if backup fingerprint matches the connected device
+function checkImportCompatibility() {
+    const warning = document.getElementById('importDeviceWarning');
+    if (!importBackupData || !importDeviceFingerprint) {
+        warning.classList.remove('visible');
+        return;
+    }
+    const backupFp = importBackupData.device?.fingerprint;
+    if (!backupFp) {
+        // Old backup without fingerprint — can't check
+        warning.classList.remove('visible');
+        return;
+    }
+    if (backupFp !== importDeviceFingerprint) {
+        warning.classList.add('visible');
+    } else {
+        warning.classList.remove('visible');
+    }
+}
+
+// Send restore payload to device, handling 409 mismatch with force option
+async function sendRestore(payload, force) {
+    if (force) {
+        payload.force = true;
+        log('importLog', 'Forcing restore of non-sensitive data...', 'info');
+    }
+
+    const resp = await fetchDevice('import', '/api/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeout: 30000
+    });
+
+    setProgress('importProgress', 90);
+
+    if (resp.ok) {
+        const result = await resp.json().catch(() => ({}));
+        log('importLog', 'Restore accepted by device.', 'ok');
+        if (result.filesWritten) {
+            log('importLog', `  ${result.filesWritten} file(s) written.`, 'ok');
+        }
+        if (result.credentialsSkipped) {
+            log('importLog', '  User credentials were skipped (different device).', 'warn');
+            log('importLog', '  Device will reboot into first-time setup for credential creation.', 'warn');
+        }
+        if (result.warnings) {
+            for (const w of result.warnings) {
+                log('importLog', `  Warning: ${w}`, 'warn');
+            }
+        }
+        setProgress('importProgress', 100);
+        if (result.compatible === false) {
+            log('importLog', 'Non-sensitive data restored. Device will reboot into first-time setup.', 'ok');
+            setStatus('importConnStatus', 'Partial restore complete — device will reboot into setup', 'success');
+        } else {
+            log('importLog', 'Restore complete. Device will reboot with restored settings.', 'ok');
+            setStatus('importConnStatus', 'Restore complete — device will reboot', 'success');
+        }
+    } else if (resp.status === 409) {
+        // Device mismatch — offer force option
+        const result = await resp.json().catch(() => ({}));
+        log('importLog', 'Device mismatch detected.', 'warn');
+        log('importLog', result.message || 'This backup was created on a different device.', 'warn');
+        log('importLog', '', '');
+
+        setProgress('importProgress', 0);
+        showProgress('importProgress', false);
+
+        // Show confirmation prompt
+        const confirmed = confirm(
+            'This backup was created on a different device.\n\n' +
+            'User passwords and encrypted WiFi credentials will NOT work.\n\n' +
+            'Do you want to restore non-sensitive data anyway?\n' +
+            '(Settings, automations, ESP-NOW config, maps)\n\n' +
+            'After reboot, you will need to create new login credentials.'
+        );
+
+        if (confirmed) {
+            showProgress('importProgress', true);
+            setProgress('importProgress', 20);
+            await sendRestore(payload, true);
+        } else {
+            log('importLog', 'Restore cancelled by user.', 'info');
+            setStatus('importConnStatus', 'Restore cancelled', 'error');
+        }
+    } else if (resp.status === 404 || resp.status === 403) {
+        throw new Error('Restore endpoint not available. The device must be in first-time setup with "Import from Backup" selected.');
+    } else {
+        throw new Error(`Restore failed with HTTP ${resp.status}`);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
