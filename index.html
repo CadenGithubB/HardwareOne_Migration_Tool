@@ -513,6 +513,17 @@
                     <span class="badge">/maps/**/waypoints_*.json</span>
                 </div>
             </div>
+            <div class="toggle-row">
+                <label>
+                    <input type="checkbox" id="expCerts" checked>
+                    Certificates
+                </label>
+                <div class="badge-stack">
+                    <span class="badge">/system/certs/*.pem</span>
+                    <span class="badge">/system/certs/*.crt</span>
+                    <span class="badge">/system/certs/*.key</span>
+                </div>
+            </div>
         </div>
 
         <!-- Export Action -->
@@ -916,6 +927,7 @@ function getSelectedExportCategories() {
     if (document.getElementById('expAutomations').checked) keys.push('automations');
     if (document.getElementById('expEspnow').checked) keys.push('espnow');
     if (document.getElementById('expMaps').checked) keys.push('maps');
+    if (document.getElementById('expCerts').checked) keys.push('certs');
     return keys;
 }
 
@@ -1063,6 +1075,14 @@ function pathToLabel(path) {
     }
     if (path.includes('settings.json')) return 'System Settings';
     if (path.includes('automations.json')) return 'Automations';
+    if (path.includes('/certs/')) {
+        const filename = path.split('/').pop();
+        if (filename.includes('ca')) return 'CA Certificate (' + filename + ')';
+        if (filename.includes('client')) return 'Client Certificate (' + filename + ')';
+        if (filename.includes('server')) return 'Server Certificate (' + filename + ')';
+        if (filename.endsWith('.key')) return 'Private Key (' + filename + ')';
+        return 'Certificate (' + filename + ')';
+    }
     if (path.endsWith('.hwmap')) return 'Map (' + path.split('/').pop() + ')';
     if (path.includes('waypoint')) return 'Waypoints (' + path.split('/').pop() + ')';
     return path.split('/').pop();

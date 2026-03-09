@@ -65,10 +65,11 @@ python3 -m http.server 8000
 | Data | File Path | Description |
 | ---- | --------- | ----------- |
 | System Settings | `/system/settings.json` | WiFi, sensors, debug flags, OLED, LED, etc. |
-| User Accounts | `/system/users/users.json` | Usernames, hashed passwords, permissions |
+| User Accounts | `/system/users/users.json`<br>`/system/users/user_settings/*.json` | Usernames, hashed passwords, permissions, themes |
 | Automations | `/system/automations.json` | Scheduled and conditional automation rules |
-| ESP-NOW Config | `/system/espnow/devices.json` | Paired devices and mesh configuration |
-| Maps & Waypoints | `/maps/*.hwmap`, `/maps/*.json` | Map files and saved GPS waypoints |
+| ESP-NOW Config | `/system/espnow/devices.json`<br>`/system/espnow/mesh_peers.json` | Paired devices and mesh configuration |
+| Maps & Waypoints | `/maps/*.hwmap`<br>`/maps/**/waypoints_*.json` | Map files and saved GPS waypoints |
+| Certificates | `/system/certs/*.pem`<br>`/system/certs/*.crt`<br>`/system/certs/*.key` | HTTPS and MQTT certificates and keys |
 
 
 ## What the Backup File Contains
