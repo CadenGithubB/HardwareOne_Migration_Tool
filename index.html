@@ -382,6 +382,29 @@
             color: var(--accent);
         }
 
+        /* Version incompatibility warning */
+        .version-danger-banner {
+            background: var(--status-error-bg);
+            color: var(--status-error-fg);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 0.82em;
+            margin-bottom: 14px;
+            display: none;
+            line-height: 1.6;
+        }
+        .version-danger-banner.visible { display: block; }
+        .version-danger-banner strong { font-weight: 600; }
+        .version-danger-banner .risk-note {
+            margin-top: 6px;
+            opacity: 0.9;
+        }
+        .version-danger-banner .btn-danger {
+            margin-top: 10px;
+            font-size: 0.85em;
+            padding: 7px 14px;
+        }
+
         /* Checkbox toggles */
         .toggle-row {
             display: flex;
@@ -648,38 +671,29 @@
         </div>
 
         <!-- Import Preview (shown after file loaded) -->
-        <div class="backup-preview" id="importPreview">
-            <div class="card">
-                <h3>Backup Contents</h3>
-                <div id="importPreviewContent"></div>
-
-                <div id="importVersionWarning" class="warning-banner">
-                    <strong>Version Mismatch</strong>
-                    <span id="importVersionWarningText"></span>
-                </div>
-
-                <div id="importDeviceWarning" class="warning-banner" style="background:var(--status-error-bg);color:var(--status-error-fg);">
-                    <strong>Different Device Detected</strong>
-                    <span id="importDeviceWarningText">This backup was created on a different device. User passwords and encrypted WiFi credentials will not work on this device. You can still restore non-sensitive data (settings, automations, maps), but you will need to create new login credentials during first-time setup after reboot.</span>
-                </div>
-
-                <!-- Selective import toggles -->
-                <div style="margin-top: 14px;">
-                    <h4 style="font-size:0.88em;font-weight:600;margin-bottom:8px;">Select what to restore:</h4>
-                    <div id="importToggles"></div>
-                </div>
+        <div id="importPreview" class="backup-preview">
+            <div id="importPreviewContent"></div>
+            <div id="importToggles"></div>
+            <div id="importVersionWarning" class="warning-banner" style="background:var(--status-warn-bg,#fff3cd);color:var(--status-warn-fg,#856404);padding:10px 12px;border-radius:6px;font-size:0.82em;margin-bottom:14px;">
+                <strong>Version Mismatch:</strong> <span id="importVersionWarningText"></span>
             </div>
-
-            <!-- Import Action -->
-            <div class="card">
-                <button class="btn btn-primary btn-full" id="importBtn" onclick="startImport()">
-                    Restore to Device
-                </button>
-                <div id="importProgress" class="progress-bar">
-                    <div class="progress-fill" id="importProgressFill"></div>
-                </div>
-                <div id="importLog" class="log-area"></div>
+            <div id="importVersionDanger" class="version-danger-banner">
+                <strong>Incompatible Version:</strong> <span id="importVersionDangerText"></span>
+                <div class="risk-note">Device may crash, fail to boot, or corrupt settings if it cannot handle the newer configuration format.</div>
+                <button id="importForceVersionBtn" class="btn btn-danger" onclick="acknowledgeVersionRisk()">I Understand the Risk — Proceed Anyway</button>
             </div>
+            <div id="importDeviceWarning" class="warning-banner" style="background:var(--status-warn-bg,#fff3cd);color:var(--status-warn-fg,#856404);padding:10px 12px;border-radius:6px;font-size:0.82em;margin-bottom:14px;">
+                <strong>Device Mismatch:</strong> <span id="importDeviceWarningText"></span>
+            </div>
+            <button id="importStartBtn" class="btn btn-primary btn-full" onclick="startImport()">Start Restore</button>
+        </div>
+
+        <!-- Import Action -->
+        <div class="card" id="importActionCard" style="display:none;">
+            <div id="importProgress" class="progress-bar">
+                <div class="progress-fill" id="importProgressFill"></div>
+            </div>
+            <div id="importLog" class="log-area"></div>
         </div>
     </div>
 
@@ -1088,15 +1102,39 @@ function renderImportPreview(data) {
     }
     toggles.innerHTML = toggleHtml;
 
-    // Version warning — only show when versions actually differ
+    // Version compatibility check
     const backupVer = data.device?.firmwareVersion || 'unknown';
     const deviceVer = importDeviceFirmwareVersion || null;
+    const dangerBanner = document.getElementById('importVersionDanger');
+    const startBtn = document.getElementById('importStartBtn');
+    
     if (deviceVer && backupVer !== 'unknown' && backupVer !== deviceVer) {
-        warning.classList.add('visible');
-        document.getElementById('importVersionWarningText').textContent =
-            `This backup was created on firmware "${backupVer}" but the device is running "${deviceVer}". Settings that no longer exist in the new firmware will be ignored. New settings will use defaults.`;
+        const backupParsed = parseVersion(backupVer);
+        const deviceParsed = parseVersion(deviceVer);
+        
+        // Check if backup is from a NEWER version (forward incompatible)
+        if (backupParsed && deviceParsed && compareVersions(backupParsed, deviceParsed) > 0) {
+            // DANGER: Backup is newer than device
+            dangerBanner.classList.add('visible');
+            document.getElementById('importVersionDangerText').textContent =
+                `This backup was created on firmware v${backupVer}, but the device is running older firmware v${deviceVer}.`;
+            startBtn.disabled = true;
+            startBtn.textContent = 'Restore Blocked — Acknowledge Risk Above';
+            warning.classList.remove('visible');
+        } else {
+            // Safe direction: device is newer or same
+            dangerBanner.classList.remove('visible');
+            startBtn.disabled = false;
+            startBtn.textContent = 'Start Restore';
+            warning.classList.add('visible');
+            document.getElementById('importVersionWarningText').textContent =
+                `This backup was created on firmware "${backupVer}" but the device is running "${deviceVer}". Settings that no longer exist in the new firmware will be ignored. New settings will use defaults.`;
+        }
     } else {
+        dangerBanner.classList.remove('visible');
         warning.classList.remove('visible');
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Restore';
     }
 
     preview.classList.add('visible');
@@ -1257,6 +1295,36 @@ function toggleCollapsible(id) {
     body.classList.toggle('open');
 }
 
+// Parse semantic version string (e.g., "2.1.3" or "v2.1.3")
+function parseVersion(verStr) {
+    const match = verStr.replace(/^v/, '').match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
+    if (!match) return null;
+    return {
+        major: parseInt(match[1], 10),
+        minor: parseInt(match[2], 10),
+        patch: parseInt(match[3] || '0', 10)
+    };
+}
+
+// Compare two parsed versions: returns -1 if a < b, 0 if equal, 1 if a > b
+function compareVersions(a, b) {
+    if (a.major !== b.major) return a.major > b.major ? 1 : -1;
+    if (a.minor !== b.minor) return a.minor > b.minor ? 1 : -1;
+    if (a.patch !== b.patch) return a.patch > b.patch ? 1 : -1;
+    return 0;
+}
+
+// User acknowledges version risk and enables restore button
+function acknowledgeVersionRisk() {
+    const startBtn = document.getElementById('importStartBtn');
+    const dangerBanner = document.getElementById('importVersionDanger');
+    startBtn.disabled = false;
+    startBtn.textContent = 'Start Restore (Version Risk Acknowledged)';
+    startBtn.classList.add('btn-danger');
+    startBtn.classList.remove('btn-primary');
+    dangerBanner.style.opacity = '0.6';
+}
+
 function pathToLabel(path) {
     if (path.includes('settings.json') && path.includes('espnow')) return 'ESP-NOW Peer Settings';
     if (path.includes('devices.json')) return 'ESP-NOW Devices';
@@ -1315,8 +1383,12 @@ function getFileSummary(path, content) {
 async function startImport() {
     if (!importBackupData) return;
 
-    const btn = document.getElementById('importBtn');
+    const btn = document.getElementById('importStartBtn');
     btn.disabled = true;
+    
+    // Show the import action card (progress/log)
+    document.getElementById('importActionCard').style.display = 'block';
+    
     logClear('importLog');
     showProgress('importProgress', true);
     setProgress('importProgress', 0);
@@ -1526,6 +1598,41 @@ async function sendRestore(payload, force) {
         throw new Error(`Restore failed with HTTP ${resp.status}`);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// TEST FUNCTIONS (for manual testing in console)
+// ═══════════════════════════════════════════════════════════════════
+
+// Test version warning UI - call from browser console:
+// testVersionWarning('2.5.0', '2.0.0') - shows danger (backup newer)
+// testVersionWarning('2.0.0', '2.5.0') - shows info warning (device newer)
+// testVersionWarning('2.0.0', '2.0.0') - no warning (same version)
+window.testVersionWarning = function(backupVer, deviceVer) {
+    // Create mock backup data
+    importBackupData = {
+        magic: 'HWBACKUP',
+        formatVersion: 1,
+        timestamp: new Date().toISOString(),
+        device: {
+            hostname: 'test-device',
+            firmwareVersion: backupVer,
+            board: 'ESP32-S3',
+            mac: '00:11:22:33:44:55'
+        },
+        files: {
+            '/system/settings.json': { wifi: { ssid: 'TestNetwork' } },
+            '/system/automations.json': { automations: [] }
+        }
+    };
+    
+    // Set device version
+    importDeviceFirmwareVersion = deviceVer;
+    
+    // Render the preview
+    renderImportPreview(importBackupData);
+    
+    console.log(`Testing: Backup v${backupVer} → Device v${deviceVer}`);
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // DROP ZONE HANDLERS
