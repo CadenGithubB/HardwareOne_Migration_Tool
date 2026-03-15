@@ -307,6 +307,81 @@
             font-weight: 500;
         }
 
+        /* Compact summary grid */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .summary-grid .preview-section { margin-bottom: 0; }
+        @media (max-width: 600px) {
+            .summary-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Collapsible sections */
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+        }
+        .collapsible-header:hover { opacity: 0.8; }
+        .collapsible-header .chevron {
+            font-size: 0.7em;
+            transition: transform 0.2s;
+            color: var(--muted);
+        }
+        .collapsible-header.open .chevron { transform: rotate(90deg); }
+        .collapsible-body {
+            display: none;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+        .collapsible-body.open { display: block; }
+
+        /* Data table for users/automations/peers */
+        .data-table {
+            width: 100%;
+            font-size: 0.82em;
+            border-collapse: collapse;
+        }
+        .data-table th {
+            text-align: left;
+            font-weight: 600;
+            color: var(--muted);
+            padding: 4px 8px 4px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table td {
+            padding: 4px 8px 4px 0;
+            color: var(--fg);
+        }
+        .data-table tr:not(:last-child) td {
+            border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+        }
+
+        /* File tags */
+        .file-tag {
+            display: inline-block;
+            font-size: 0.75em;
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-right: 4px;
+            margin-bottom: 2px;
+        }
+        .file-tag.encrypted {
+            background: color-mix(in srgb, var(--status-warn-fg, #f59e0b) 15%, transparent);
+            color: var(--status-warn-fg, #f59e0b);
+        }
+        .file-tag.size {
+            background: color-mix(in srgb, var(--accent) 12%, transparent);
+            color: var(--accent);
+        }
+
         /* Checkbox toggles */
         .toggle-row {
             display: flex;
@@ -515,7 +590,7 @@
             </div>
             <div class="toggle-row">
                 <label>
-                    <input type="checkbox" id="expCerts" checked>
+                    <input type="checkbox" id="expCerts" checked onchange="toggleCertWarning()">
                     Certificates
                 </label>
                 <div class="badge-stack">
@@ -523,6 +598,9 @@
                     <span class="badge">/system/certs/*.crt</span>
                     <span class="badge">/system/certs/*.key</span>
                 </div>
+            </div>
+            <div id="certWarning" class="warning-banner" style="display:none;margin-top:8px;background:var(--status-warn-bg,#fff3cd);color:var(--status-warn-fg,#856404);padding:10px 12px;border-radius:6px;font-size:0.82em;">
+                <strong>Note:</strong> Private keys (.key) and certificates are encrypted with this device's unique hardware key before export. They will only be decryptable when restoring to this same device. On a different device, certificate files will be skipped.
             </div>
         </div>
 
@@ -755,7 +833,9 @@ function authHeaders(mode) {
 async function fetchDevice(mode, path, opts = {}) {
     const url = deviceUrl(mode, path);
     if (!url) throw new Error('No device IP specified');
-    const headers = { ...authHeaders(mode), ...(opts.headers || {}) };
+    // Skip auth headers for ping — it's an open endpoint, no credentials needed
+    const needsAuth = path !== '/api/ping';
+    const headers = { ...(needsAuth ? authHeaders(mode) : {}), ...(opts.headers || {}) };
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), opts.timeout || 8000);
     try {
@@ -799,9 +879,10 @@ async function pingDevice(mode) {
             const data = await resp.json().catch(() => ({}));
             const name = data.deviceName || data.hostname || 'device';
             const version = data.firmwareVersion || data.version || 'unknown';
-            // Capture fingerprint for import mode compatibility checking
-            if (mode === 'import' && data.fingerprint) {
-                importDeviceFingerprint = data.fingerprint;
+            // Capture fingerprint and firmware version for import mode compatibility checking
+            if (mode === 'import') {
+                if (data.fingerprint) importDeviceFingerprint = data.fingerprint;
+                if (data.firmwareVersion) importDeviceFirmwareVersion = data.firmwareVersion;
                 checkImportCompatibility();
             }
             setStatus(statusId, `Connected to "${name}" (firmware: ${version})`, 'success');
@@ -931,12 +1012,18 @@ function getSelectedExportCategories() {
     return keys;
 }
 
+function toggleCertWarning() {
+    const warn = document.getElementById('certWarning');
+    warn.style.display = document.getElementById('expCerts').checked ? 'block' : 'none';
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // IMPORT (RESTORE)
 // ═══════════════════════════════════════════════════════════════════
 
 let importBackupData = null;
 let importDeviceFingerprint = null;
+let importDeviceFirmwareVersion = null;
 
 function handleImportFile(input) {
     if (!input.files.length) return;
@@ -1001,11 +1088,16 @@ function renderImportPreview(data) {
     }
     toggles.innerHTML = toggleHtml;
 
-    // Version warning (shown always as informational)
-    warning.classList.add('visible');
+    // Version warning — only show when versions actually differ
     const backupVer = data.device?.firmwareVersion || 'unknown';
-    document.getElementById('importVersionWarningText').textContent =
-        `This backup was created on firmware "${backupVer}". Settings that no longer exist in the new firmware will be ignored. New settings will use defaults.`;
+    const deviceVer = importDeviceFirmwareVersion || null;
+    if (deviceVer && backupVer !== 'unknown' && backupVer !== deviceVer) {
+        warning.classList.add('visible');
+        document.getElementById('importVersionWarningText').textContent =
+            `This backup was created on firmware "${backupVer}" but the device is running "${deviceVer}". Settings that no longer exist in the new firmware will be ignored. New settings will use defaults.`;
+    } else {
+        warning.classList.remove('visible');
+    }
 
     preview.classList.add('visible');
 
@@ -1029,39 +1121,140 @@ function renderInspectPreview(data) {
 
 function renderBackupSummary(data) {
     let html = '';
+    const encFields = data.encryptedFields || [];
 
-    // Metadata section
-    html += `<div class="preview-section">
-        <h4>Backup Metadata</h4>
-        <div class="detail">Created: <span>${data.timestamp || 'unknown'}</span></div>
-        <div class="detail">Format Version: <span>${data.formatVersion || '?'}</span></div>
-    </div>`;
-
-    // Device info
+    // Top row: device + metadata side by side
+    html += `<div class="summary-grid">`;
     if (data.device) {
         html += `<div class="preview-section">
             <h4>Source Device</h4>
             <div class="detail">Hostname: <span>${data.device.hostname || 'unknown'}</span></div>
-            <div class="detail">Firmware: <span>${data.device.firmwareVersion || 'unknown'}</span></div>
+            <div class="detail">Firmware: <span>v${data.device.firmwareVersion || 'unknown'}</span></div>
             <div class="detail">Board: <span>${data.device.board || 'unknown'}</span></div>
             <div class="detail">MAC: <span>${data.device.mac || 'unknown'}</span></div>
         </div>`;
     }
+    html += `<div class="preview-section">
+        <h4>Backup Info</h4>
+        <div class="detail">Format Version: <span>${data.formatVersion || '?'}</span></div>
+        <div class="detail">Timestamp: <span>${data.timestamp || 'unknown'}</span></div>
+        <div class="detail">Encrypted Fields: <span>${encFields.length || 0}</span></div>
+        <div class="detail">Total Files: <span>${Object.keys(data.files || {}).length}</span></div>
+    </div>`;
+    html += `</div>`;
 
-    // Files
+    // Files overview — compact list with tags
     const filePaths = Object.keys(data.files || {});
     html += `<div class="preview-section">
-        <h4>Files (${filePaths.length})</h4>`;
+        <h4>Backed Up Files</h4>`;
     for (const path of filePaths) {
         const content = data.files[path];
         const size = typeof content === 'string' ? content.length : JSON.stringify(content).length;
         const sizeStr = size < 1024 ? size + ' B' : (size / 1024).toFixed(1) + ' KB';
+        const isEnc = encFields.includes(path) || (typeof content === 'string' && content.startsWith('AES:'));
         const summary = getFileSummary(path, content);
-        html += `<div class="detail">${pathToLabel(path)}: <span>${sizeStr}</span>${summary ? ' — ' + summary : ''}</div>`;
+        html += `<div class="detail">${pathToLabel(path)} <span class="file-tag size">${sizeStr}</span>`;
+        if (isEnc) html += `<span class="file-tag encrypted">encrypted</span>`;
+        if (summary) html += ` <span style="color:var(--muted)">— ${summary}</span>`;
+        html += `</div>`;
     }
     html += `</div>`;
 
+    // Users section
+    const usersFile = data.files?.['/system/users/users.json'];
+    if (usersFile && usersFile.users && usersFile.users.length > 0) {
+        html += renderCollapsibleSection('users', 'User Accounts', `${usersFile.users.length} user(s)`, () => {
+            let inner = `<table class="data-table"><tr><th>Username</th><th>Role</th><th>Created</th></tr>`;
+            for (const u of usersFile.users) {
+                const created = u.createdAt || 'unknown';
+                inner += `<tr><td>${u.username}</td><td>${u.role || 'user'}</td><td>${created}</td></tr>`;
+            }
+            inner += `</table>`;
+            return inner;
+        });
+    }
+
+    // Automations section
+    const autoFile = data.files?.['/system/automations.json'];
+    if (autoFile && autoFile.automations) {
+        const autos = autoFile.automations;
+        const countLabel = `${autos.length} automation(s)`;
+        if (autos.length > 0) {
+            html += renderCollapsibleSection('automations', 'Automations', countLabel, () => {
+                let inner = `<table class="data-table"><tr><th>Name</th><th>Trigger</th><th>Actions</th><th>Enabled</th></tr>`;
+                for (const a of autos) {
+                    const name = a.name || a.id || 'unnamed';
+                    const trigger = a.trigger?.type || a.triggerType || a.schedule || 'unknown';
+                    const actionCount = (a.actions || a.steps || []).length;
+                    const enabled = a.enabled !== false ? 'Yes' : 'No';
+                    inner += `<tr><td>${name}</td><td>${trigger}</td><td>${actionCount}</td><td>${enabled}</td></tr>`;
+                }
+                inner += `</table>`;
+                return inner;
+            });
+        } else {
+            html += `<div class="preview-section"><h4>Automations</h4><div class="detail" style="color:var(--muted)">No automations configured</div></div>`;
+        }
+    }
+
+    // Mesh peers section
+    const meshFile = data.files?.['/system/espnow/mesh_peers.json'];
+    if (meshFile && meshFile.peers) {
+        const peers = meshFile.peers;
+        const countLabel = `${peers.length} peer(s)`;
+        if (peers.length > 0) {
+            html += renderCollapsibleSection('meshpeers', 'Mesh Peers', countLabel, () => {
+                let inner = `<table class="data-table"><tr><th>Name</th><th>MAC</th><th>Role</th><th>Last Seen</th></tr>`;
+                for (const p of peers) {
+                    const name = p.deviceName || p.name || 'unnamed';
+                    const mac = p.mac || p.macAddress || 'unknown';
+                    const role = p.role || p.meshRole || 'unknown';
+                    const lastSeen = p.lastSeen || p.lastHeartbeat || 'unknown';
+                    inner += `<tr><td>${name}</td><td><code>${mac}</code></td><td>${role}</td><td>${lastSeen}</td></tr>`;
+                }
+                inner += `</table>`;
+                return inner;
+            });
+        } else {
+            html += `<div class="preview-section"><h4>Mesh Peers</h4><div class="detail" style="color:var(--muted)">No peers configured</div></div>`;
+        }
+    }
+
+    // ESP-NOW devices
+    const devicesFile = data.files?.['/system/espnow/devices.json'];
+    if (devicesFile && devicesFile.devices && devicesFile.devices.length > 0) {
+        html += renderCollapsibleSection('espnowdevices', 'ESP-NOW Devices', `${devicesFile.devices.length} device(s)`, () => {
+            let inner = `<table class="data-table"><tr><th>Name</th><th>MAC</th><th>Type</th></tr>`;
+            for (const d of devicesFile.devices) {
+                const name = d.deviceName || d.name || 'unnamed';
+                const mac = d.mac || d.macAddress || 'unknown';
+                const type = d.type || d.deviceType || 'unknown';
+                inner += `<tr><td>${name}</td><td><code>${mac}</code></td><td>${type}</td></tr>`;
+            }
+            inner += `</table>`;
+            return inner;
+        });
+    }
+
     return html;
+}
+
+function renderCollapsibleSection(id, title, badge, contentFn) {
+    const contentHtml = contentFn();
+    return `<div class="preview-section">
+        <div class="collapsible-header" onclick="toggleCollapsible('${id}')" id="collHead_${id}">
+            <h4 style="margin-bottom:0">${title} <span style="font-weight:400;color:var(--muted);font-size:0.9em">(${badge})</span></h4>
+            <span class="chevron">&#9654;</span>
+        </div>
+        <div class="collapsible-body" id="collBody_${id}">${contentHtml}</div>
+    </div>`;
+}
+
+function toggleCollapsible(id) {
+    const head = document.getElementById('collHead_' + id);
+    const body = document.getElementById('collBody_' + id);
+    head.classList.toggle('open');
+    body.classList.toggle('open');
 }
 
 function pathToLabel(path) {
@@ -1154,9 +1347,8 @@ async function startImport() {
                 } else {
                     log('importLog', 'Warning: Device may not be in restore mode. The /api/restore endpoint is only available during first-time setup when "Import from Backup" is selected.', 'warn');
                 }
-                if (pingData.fingerprint) {
-                    importDeviceFingerprint = pingData.fingerprint;
-                }
+                if (pingData.fingerprint) importDeviceFingerprint = pingData.fingerprint;
+                if (pingData.firmwareVersion) importDeviceFirmwareVersion = pingData.firmwareVersion;
             }
         } catch (_) {
             log('importLog', 'Could not ping device — attempting restore anyway.', 'warn');
@@ -1189,6 +1381,35 @@ async function startImport() {
     btn.disabled = false;
 }
 
+// Classify backup files into transferable vs device-bound
+function classifyBackupFiles(data) {
+    const transferable = [];
+    const deviceBound = [];
+    const encFields = data.encryptedFields || [];
+
+    for (const path of Object.keys(data.files || {})) {
+        // User credential files are device-bound
+        if (path.startsWith('/system/users/')) {
+            deviceBound.push({ path, reason: 'User credentials (password hashes are device-bound)' });
+            continue;
+        }
+        // Files listed in encryptedFields are device-bound
+        if (encFields.includes(path)) {
+            deviceBound.push({ path, reason: 'Encrypted with source device hardware key' });
+            continue;
+        }
+        // Cert files with AES: content are device-bound
+        const content = data.files[path];
+        if (typeof content === 'string' && content.startsWith('AES:') &&
+            (path.endsWith('.pem') || path.endsWith('.crt') || path.endsWith('.key'))) {
+            deviceBound.push({ path, reason: 'Encrypted with source device hardware key' });
+            continue;
+        }
+        transferable.push(path);
+    }
+    return { transferable, deviceBound };
+}
+
 // Check if backup fingerprint matches the connected device
 function checkImportCompatibility() {
     const warning = document.getElementById('importDeviceWarning');
@@ -1203,6 +1424,18 @@ function checkImportCompatibility() {
         return;
     }
     if (backupFp !== importDeviceFingerprint) {
+        // Build detailed warning with transfer summary
+        const { transferable, deviceBound } = classifyBackupFiles(importBackupData);
+        let warningText = 'This backup was created on a different device. ';
+        if (deviceBound.length > 0) {
+            warningText += `${deviceBound.length} file(s) will be skipped (encrypted or device-bound): `;
+            warningText += deviceBound.map(f => f.path.split('/').pop()).join(', ') + '. ';
+        }
+        if (transferable.length > 0) {
+            warningText += `${transferable.length} file(s) can be transferred (settings, automations, maps, etc.). `;
+        }
+        warningText += 'After reboot, you will need to create new login credentials during first-time setup.';
+        document.getElementById('importDeviceWarningText').textContent = warningText;
         warning.classList.add('visible');
     } else {
         warning.classList.remove('visible');
@@ -1258,14 +1491,26 @@ async function sendRestore(payload, force) {
         setProgress('importProgress', 0);
         showProgress('importProgress', false);
 
-        // Show confirmation prompt
-        const confirmed = confirm(
-            'This backup was created on a different device.\n\n' +
-            'User passwords and encrypted WiFi credentials will NOT work.\n\n' +
-            'Do you want to restore non-sensitive data anyway?\n' +
-            '(Settings, automations, ESP-NOW config, maps)\n\n' +
-            'After reboot, you will need to create new login credentials.'
-        );
+        // Build detailed transfer summary for confirmation
+        const { transferable, deviceBound } = classifyBackupFiles(importBackupData || payload);
+        let confirmMsg = 'This backup was created on a different device.\n\n';
+        if (deviceBound.length > 0) {
+            confirmMsg += `WILL BE SKIPPED (${deviceBound.length} files):\n`;
+            for (const f of deviceBound) {
+                confirmMsg += `  \u2718 ${f.path.split('/').pop()} \u2014 ${f.reason}\n`;
+            }
+            confirmMsg += '\n';
+        }
+        if (transferable.length > 0) {
+            confirmMsg += `WILL BE RESTORED (${transferable.length} files):\n`;
+            for (const p of transferable) {
+                confirmMsg += `  \u2714 ${p.split('/').pop()}\n`;
+            }
+            confirmMsg += '\n';
+        }
+        confirmMsg += 'After reboot, you will need to create new login credentials.\n\nProceed with partial restore?';
+
+        const confirmed = confirm(confirmMsg);
 
         if (confirmed) {
             showProgress('importProgress', true);
