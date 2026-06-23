@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- HardwareOne Migration Tool — v1.0.1 -->
 <html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
@@ -359,9 +360,16 @@
         .data-table td {
             padding: 4px 8px 4px 0;
             color: var(--fg);
+            vertical-align: top;
         }
         .data-table tr:not(:last-child) td {
             border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+        }
+        /* Encrypted MAC ciphertext (AES:...) is one long token with no natural
+           break points; let it wrap so it can't force the table wider than its card. */
+        .data-table code {
+            overflow-wrap: anywhere;
+            word-break: break-all;
         }
 
         /* File tags */
@@ -963,6 +971,10 @@ async function startExport() {
                 const body = await resp.text().catch(() => '');
                 console.error('[BACKUP DEBUG] Response body:', body);
                 throw new Error('Authentication failed \u2014 check username/password');
+            }
+            if (resp.status === 403) {
+                console.error('[BACKUP DEBUG] 403 Forbidden - admin access required');
+                throw new Error('Admin access required \u2014 back up using an administrator account');
             }
             const body = await resp.text().catch(() => '');
             console.error('[BACKUP DEBUG] Error response body:', body);
