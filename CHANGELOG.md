@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com), and this project adheres to
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+- Restore uploads awaiting on-device confirmation are shown as staged, not completed; instructions explain how to confirm or cancel using OLED or serial.
+- An already-pending restore no longer triggers a device-mismatch prompt or forced re-upload.
+- Invalid JSON and explicit error responses no longer appear as successful restores. Immediate-success responses from older firmware remain supported.
+
+### Added
+- Dependency-free restore-response tests, with an optional check against the firmware checkout's staged-restore response contract.
+
+## [1.0.3] — 2026-07-19
+
+Understand field-level `encryptedFields` from firmware backup export.
+
+### Changed
+- Parse `encryptedFields` as either whole-file paths (`/system/certs/…`) or
+  nested paths (`/system/settings.json:network.wifi.networks[0].password`).
+  Older stub entries (`wifiNetworks[].password`, wildcards) are ignored.
+- Inspect/preview lists device-bound secrets and tags files that contain them
+  (`N secret(s)`), not only wholly encrypted cert files.
+- Cross-device import warnings/confirmations call out nested secrets that will
+  be cleared inside transferable files (settings, ESP-NOW JSON, etc.).
+
+## [1.0.2] — 2026-07-19
+
+Align backup contents UI/docs with the firmware settings/debug split.
+
+### Changed
+- **System Settings** export now documents `/system/debug.json` alongside
+  `settings.json` (firmware already bundles both under the `settings` category).
+- **User Accounts** export now documents `/system/boot_anchors.json`
+  (firmware already includes it with the `users` category).
+- Inspect/preview labels recognize `debug.json` and `boot_anchors.json`.
+- `BACKUP_CATEGORIES` includes `certs` so it matches the export checkboxes.
+
 ## [1.0.1] — 2026-06-28
 
 Clearer admin-only backup feedback and a fix for encrypted-MAC display.

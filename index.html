@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- HardwareOne Migration Tool — v1.0.1 -->
+<!-- HardwareOne Migration Tool — v1.0.3 -->
 <html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
@@ -580,7 +580,10 @@
                     <input type="checkbox" id="expSettings" checked>
                     System Settings
                 </label>
-                <span class="badge">/system/settings.json</span>
+                <div class="badge-stack">
+                    <span class="badge">/system/settings.json</span>
+                    <span class="badge">/system/debug.json</span>
+                </div>
             </div>
             <div class="toggle-row">
                 <label>
@@ -590,6 +593,7 @@
                 <div class="badge-stack">
                     <span class="badge">/system/users/users.json</span>
                     <span class="badge">/system/users/user_settings/*.json</span>
+                    <span class="badge">/system/boot_anchors.json</span>
                 </div>
             </div>
             <div class="toggle-row">
@@ -743,13 +747,17 @@
 const BACKUP_FORMAT_VERSION = 1;
 const BACKUP_MAGIC = 'HWBACKUP';
 
-// Backup categories (sent to /api/backup as a selection list)
+// Backup categories (sent to /api/backup as a selection list).
+// Firmware bundles related files per category:
+//   settings  → settings.json + debug.json
+//   users     → users.json + user_settings/* + boot_anchors.json
 const BACKUP_CATEGORIES = {
     settings:    { label: 'System Settings' },
     users:       { label: 'User Accounts' },
     automations: { label: 'Automations' },
     espnow:      { label: 'ESP-NOW Config' },
-    maps:        { label: 'Maps & Waypoints' }
+    maps:        { label: 'Maps & Waypoints' },
+    certs:       { label: 'Certificates' }
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1171,7 +1179,7 @@ function renderInspectPreview(data) {
 
 function renderBackupSummary(data) {
     let html = '';
-    const encFields = data.encryptedFields || [];
+    const encMeta = parseEncryptedFields(data.encryptedFields);
 
     // Top row: device + metadata side by side
     html += `<div class="summary-grid">`;
@@ -1188,7 +1196,7 @@ function renderBackupSummary(data) {
         <h4>Backup Info</h4>
         <div class="detail">Format Version: <span>${data.formatVersion || '?'}</span></div>
         <div class="detail">Timestamp: <span>${data.timestamp || 'unknown'}</span></div>
-        <div class="detail">Encrypted Fields: <span>${encFields.length || 0}</span></div>
+        <div class="detail">Encrypted Fields: <span>${encMeta.entries.length || 0}</span></div>
         <div class="detail">Total Files: <span>${Object.keys(data.files || {}).length}</span></div>
     </div>`;
     html += `</div>`;
@@ -1201,14 +1209,35 @@ function renderBackupSummary(data) {
         const content = data.files[path];
         const size = typeof content === 'string' ? content.length : JSON.stringify(content).length;
         const sizeStr = size < 1024 ? size + ' B' : (size / 1024).toFixed(1) + ' KB';
-        const isEnc = encFields.includes(path) || (typeof content === 'string' && content.startsWith('AES:'));
+        const nestedCount = (encMeta.nestedByFile.get(path) || []).length;
+        const wholeEnc = encMeta.wholeFiles.has(path) ||
+            (typeof content === 'string' && content.startsWith('AES:'));
         const summary = getFileSummary(path, content);
         html += `<div class="detail">${pathToLabel(path)} <span class="file-tag size">${sizeStr}</span>`;
-        if (isEnc) html += `<span class="file-tag encrypted">encrypted</span>`;
+        if (wholeEnc) html += `<span class="file-tag encrypted">encrypted</span>`;
+        else if (nestedCount > 0) html += `<span class="file-tag encrypted">${nestedCount} secret(s)</span>`;
         if (summary) html += ` <span style="color:var(--muted)">— ${summary}</span>`;
         html += `</div>`;
     }
     html += `</div>`;
+
+    // Device-bound secrets inventory (field-level AES / password hashes)
+    if (encMeta.entries.length > 0) {
+        html += renderCollapsibleSection('encfields', 'Device-Bound Secrets',
+            `${encMeta.entries.length} entr${encMeta.entries.length === 1 ? 'y' : 'ies'}`, () => {
+            let inner = `<div style="font-size:0.85em;color:var(--muted);margin-bottom:8px">` +
+                `These use the source device hardware key (or password hashes). ` +
+                `Same-device restore keeps them; cross-device restore skips or clears them.</div>`;
+            inner += `<table class="data-table"><tr><th>File</th><th>Field</th></tr>`;
+            for (const e of encMeta.entries) {
+                const fileLabel = pathToLabel(e.file);
+                const fieldLabel = e.field ? shortEncryptedFieldLabel(e.field) : '(entire file)';
+                inner += `<tr><td>${fileLabel}</td><td><code>${fieldLabel}</code></td></tr>`;
+            }
+            inner += `</table>`;
+            return inner;
+        });
+    }
 
     // Users section
     const usersFile = data.files?.['/system/users/users.json'];
@@ -1341,6 +1370,8 @@ function pathToLabel(path) {
     if (path.includes('settings.json') && path.includes('espnow')) return 'ESP-NOW Peer Settings';
     if (path.includes('devices.json')) return 'ESP-NOW Devices';
     if (path.includes('mesh_peers.json')) return 'Mesh Peers';
+    if (path.endsWith('/debug.json') || path.includes('/system/debug.json')) return 'Debug Settings';
+    if (path.endsWith('boot_anchors.json')) return 'Boot Anchors';
     if (path.includes('users.json')) return 'User Accounts';
     if (path.includes('user_settings/') && path.endsWith('.json')) {
         const userId = path.split('/').pop().replace('.json', '');
@@ -1378,9 +1409,17 @@ function getFileSummary(path, content) {
         const autos = content.automations || [];
         return autos.length + ' automation(s)';
     }
+    if (path.includes('/system/debug.json') || path.endsWith('/debug.json')) {
+        const keys = Object.keys(content);
+        return keys.length + ' debug section(s)';
+    }
     if (path.includes('settings.json') && !path.includes('espnow')) {
         const keys = Object.keys(content);
         return keys.length + ' setting(s)';
+    }
+    if (path.endsWith('boot_anchors.json')) {
+        const keys = Object.keys(content);
+        return keys.length ? keys.length + ' anchor(s)' : 'boot time anchors';
     }
     if (path.endsWith('.hwmap')) {
         return 'binary map file';
@@ -1465,11 +1504,58 @@ async function startImport() {
     btn.disabled = false;
 }
 
-// Classify backup files into transferable vs device-bound
+// encryptedFields entries from firmware:
+//   "/system/certs/server.key"                          — whole-file AES ciphertext
+//   "/system/settings.json:network.wifi.networks[0].password" — nested AES field
+//   "/system/users/user_settings/1.json:password"        — PBKDF2 hash (credential)
+// Legacy stubs (ignored): "wifiNetworks[].password", ".../*.json:password"
+function parseEncryptedFields(encFields) {
+    const wholeFiles = new Set();
+    const nestedByFile = new Map();
+    const entries = [];
+
+    for (const entry of encFields || []) {
+        if (typeof entry !== 'string' || !entry) continue;
+        if (!entry.startsWith('/')) continue; // legacy non-path stubs
+        if (entry.includes('*')) continue;    // legacy wildcards
+
+        const colon = entry.indexOf(':');
+        if (colon < 0) {
+            wholeFiles.add(entry);
+            entries.push({ file: entry, field: null, raw: entry });
+            continue;
+        }
+        const file = entry.slice(0, colon);
+        const field = entry.slice(colon + 1);
+        if (!field) {
+            wholeFiles.add(file);
+            entries.push({ file, field: null, raw: entry });
+            continue;
+        }
+        if (!nestedByFile.has(file)) nestedByFile.set(file, []);
+        nestedByFile.get(file).push(field);
+        entries.push({ file, field, raw: entry });
+    }
+    return { wholeFiles, nestedByFile, entries };
+}
+
+function shortEncryptedFieldLabel(fieldPath) {
+    if (!fieldPath) return '';
+    // Prefer the leaf key, keep a little parent context for arrays
+    const m = fieldPath.match(/(?:^|\.)([^.\[\]]+)(?:\[\d+\])?\.([^.\[\]]+)$/);
+    if (m) return `${m[1]}.${m[2]}`;
+    const leaf = fieldPath.split('.').pop();
+    return leaf || fieldPath;
+}
+
+// Classify backup files into transferable vs device-bound (cross-device restore).
+// Nested AES secrets live inside transferable JSON files (e.g. settings.json);
+// firmware clears those AES: blobs on cross-device restore while keeping the file.
 function classifyBackupFiles(data) {
     const transferable = [];
     const deviceBound = [];
-    const encFields = data.encryptedFields || [];
+    const fieldBound = [];
+    const encMeta = parseEncryptedFields(data.encryptedFields);
 
     for (const path of Object.keys(data.files || {})) {
         // User credential files are device-bound
@@ -1477,8 +1563,8 @@ function classifyBackupFiles(data) {
             deviceBound.push({ path, reason: 'User credentials (password hashes are device-bound)' });
             continue;
         }
-        // Files listed in encryptedFields are device-bound
-        if (encFields.includes(path)) {
+        // Whole files listed in encryptedFields (certs/keys)
+        if (encMeta.wholeFiles.has(path)) {
             deviceBound.push({ path, reason: 'Encrypted with source device hardware key' });
             continue;
         }
@@ -1489,9 +1575,18 @@ function classifyBackupFiles(data) {
             deviceBound.push({ path, reason: 'Encrypted with source device hardware key' });
             continue;
         }
+
+        const nested = encMeta.nestedByFile.get(path) || [];
+        if (nested.length > 0) {
+            fieldBound.push({
+                path,
+                fields: nested,
+                reason: 'Contains device-key secrets (cleared on cross-device restore)'
+            });
+        }
         transferable.push(path);
     }
-    return { transferable, deviceBound };
+    return { transferable, deviceBound, fieldBound };
 }
 
 // Check if backup fingerprint matches the connected device
@@ -1509,11 +1604,16 @@ function checkImportCompatibility() {
     }
     if (backupFp !== importDeviceFingerprint) {
         // Build detailed warning with transfer summary
-        const { transferable, deviceBound } = classifyBackupFiles(importBackupData);
+        const { transferable, deviceBound, fieldBound } = classifyBackupFiles(importBackupData);
         let warningText = 'This backup was created on a different device. ';
         if (deviceBound.length > 0) {
             warningText += `${deviceBound.length} file(s) will be skipped (encrypted or device-bound): `;
             warningText += deviceBound.map(f => f.path.split('/').pop()).join(', ') + '. ';
+        }
+        if (fieldBound.length > 0) {
+            const secretCount = fieldBound.reduce((n, f) => n + f.fields.length, 0);
+            warningText += `${secretCount} secret field(s) inside transferable files will be cleared ` +
+                `(WiFi/BLE/mesh passwords, etc.). `;
         }
         if (transferable.length > 0) {
             warningText += `${transferable.length} file(s) can be transferred (settings, automations, maps, etc.). `;
@@ -1526,7 +1626,22 @@ function checkImportCompatibility() {
     }
 }
 
-// Send restore payload to device, handling 409 mismatch with force option
+// Newer firmware stages uploads until the operator confirms on the device.
+// Do not report completion or offer a force retry while that decision is pending.
+function showRestorePendingConfirmation(result, alreadyPending = false) {
+    log('importLog', alreadyPending
+        ? 'A backup is already staged on the device; this upload was not accepted.'
+        : 'Backup uploaded and staged on the device.', 'info');
+    if (result.message) log('importLog', result.message, 'info');
+    log('importLog', 'Confirm or cancel on the device OLED or serial console. The staged files have not been applied.', 'warn');
+    if (result.compatible === false || result.credentialsSkipped) {
+        log('importLog', 'If confirmed, device-bound credentials will be skipped; guided login setup follows reboot.', 'warn');
+    }
+    setProgress('importProgress', 90);
+    setStatus('importConnStatus', 'Awaiting confirmation on device (OLED or serial) — restore not yet applied', 'working');
+}
+
+// Send restore payload without changing the HWBACKUP format or legacy 200 flow.
 async function sendRestore(payload, force) {
     if (force) {
         payload.force = true;
@@ -1541,9 +1656,24 @@ async function sendRestore(payload, force) {
     });
 
     setProgress('importProgress', 90);
+    const result = await resp.json().catch(() => null);
+    const hasResult = result !== null && typeof result === 'object' && !Array.isArray(result);
 
     if (resp.ok) {
-        const result = await resp.json().catch(() => ({}));
+        if (!hasResult) throw new Error('Device returned an invalid restore response');
+        if (result.error || result.success === false) {
+            throw new Error(result.error || result.message || 'Device rejected the restore');
+        }
+        if (resp.status === 202 || result.pendingConfirm === true) {
+            showRestorePendingConfirmation(result);
+            return;
+        }
+        // Older firmware applied immediately and reported success/filesWritten.
+        // An empty or unrelated JSON object is not evidence of a completed restore.
+        if (result.success !== true &&
+            !(Number.isInteger(result.filesWritten) && result.filesWritten >= 0)) {
+            throw new Error('Device did not confirm that the restore was applied');
+        }
         log('importLog', 'Restore accepted by device.', 'ok');
         if (result.filesWritten) {
             log('importLog', `  ${result.filesWritten} file(s) written.`, 'ok');
@@ -1566,8 +1696,16 @@ async function sendRestore(payload, force) {
             setStatus('importConnStatus', 'Restore complete — device will reboot', 'success');
         }
     } else if (resp.status === 409) {
-        // Device mismatch — offer force option
-        const result = await resp.json().catch(() => ({}));
+        if (hasResult && result.pendingConfirm === true) {
+            showRestorePendingConfirmation(result, true);
+            return;
+        }
+        // Only an explicit device mismatch may offer a forced cross-device restore.
+        // Other conflicts must not cause a second upload or change the payload.
+        if (!hasResult || !(result.reason === 'different_device' ||
+            result.compatible === false || result.error === 'Device mismatch')) {
+            throw new Error((hasResult && (result.message || result.error)) || 'Restore conflict reported by device');
+        }
         log('importLog', 'Device mismatch detected.', 'warn');
         log('importLog', result.message || 'This backup was created on a different device.', 'warn');
         log('importLog', '', '');
@@ -1576,12 +1714,20 @@ async function sendRestore(payload, force) {
         showProgress('importProgress', false);
 
         // Build detailed transfer summary for confirmation
-        const { transferable, deviceBound } = classifyBackupFiles(importBackupData || payload);
+        const { transferable, deviceBound, fieldBound } = classifyBackupFiles(importBackupData || payload);
         let confirmMsg = 'This backup was created on a different device.\n\n';
         if (deviceBound.length > 0) {
             confirmMsg += `WILL BE SKIPPED (${deviceBound.length} files):\n`;
             for (const f of deviceBound) {
                 confirmMsg += `  \u2718 ${f.path.split('/').pop()} \u2014 ${f.reason}\n`;
+            }
+            confirmMsg += '\n';
+        }
+        if (fieldBound.length > 0) {
+            confirmMsg += `SECRETS CLEARED INSIDE RESTORED FILES:\n`;
+            for (const f of fieldBound) {
+                const labels = f.fields.map(shortEncryptedFieldLabel).join(', ');
+                confirmMsg += `  \u26A0 ${f.path.split('/').pop()} \u2014 ${labels}\n`;
             }
             confirmMsg += '\n';
         }
